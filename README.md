@@ -44,14 +44,14 @@ We use curriculum learning to leverage large-scale RAMP data while preventing ov
 
 Goal: Teach semantic distinction between roof and ground in informal settlements.
 
-- Data: 100,000 labeled RAMP image chips
-- Method: Full fine-tuning (Backbone + Head)
-- Initialization:
+- **Data**: 100,000 labeled RAMP image chips
+- **Method**: Full fine-tuning (Backbone + Head)
+- **Initialization**:
   - Backbone: ImageNet-22K pretrained weights
-  - Head: Random initialization
-- Hyperparameters: Fixed standard defaults
-- Outcome: Robust base model understanding dense settlements
-
+  - Head: Random initialization ( Perhaps I can find some pretrained weight here as well ) 
+- **Hyperparameters**: Fixed standard defaults ( Can't afford gpu to do so ) 
+- **Outcome**: Assuming a binary segmentation mask for building
+- 
 ### Stage 2: Site-Specific Adaptation
 
 Goal: Adapt to local soil colors, lighting, and building styles. , I am targeting around 1000 chips which is ideal for production level env
@@ -77,12 +77,11 @@ $$
 - Focal Loss (L_Focal): Emphasizes hard-to-classify pixels
 - Hausdorff Boundary Loss (L_Boundary): Penalizes edge mismatch, enforcing sharp corners, I think this is important for our irregular geometry problem
 
-
 ## Implementation Details
 
 ### Hardware & Setup
 
-- GPU: NVIDIA RTX 4090 (16 GB)
+- GPU: ( Not sure yet )
 - Data Loading: TorchGeo streaming GeoTIFFs
 - Bridge: Custom collate_fn converting TorchGeo tensors to Mask2Former format
 - Memory Management: gradient_accumulation_steps = 8 (simulates batch size ~32)
@@ -100,18 +99,18 @@ Stage 1 uses fixed hyperparameters. All tuning occurs during Stage 2 on the 200-
 
 ### Learning Rate
 
-- Standard: 1e-4 (recommended starting point)
+- Standard: 1e-4 (may be starting point)
 - Conservative: 1e-5 (if validation loss oscillates)
 - Aggressive: 5e-4 (if convergence is too slow)
 
 ### Boundary Loss Weight (α)
 
-- Low: 0.1 (recommended start)
+- Low: 0.1 (may be start)
 - High: 0.5–1.0 (if edges remain irregular despite good separation)
 
 ### LoRA Rank
 
-- Standard: 16 (best balance)
+- Standard: 16 (may be best balance)
 - Low: 8 (if overfitting occurs)
 - High: 32 (if model fails to capture new roof textures)
 
