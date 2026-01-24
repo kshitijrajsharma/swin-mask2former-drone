@@ -9,10 +9,19 @@ class Config:
     output_dir: Path = Path("outputs")
     res: float = 0.3
     seed: int = 42
+
+    # # Manual region split (leave empty for automatic split)
+    # train_regions: list[str] = field(default_factory=list)
+    # val_regions: list[str] = field(default_factory=list)
     
-    # Manual region split (leave empty for automatic split)
-    train_regions: list[str] = field(default_factory=list)
-    val_regions: list[str] = field(default_factory=list)
+    train_regions: list[str] = field(
+        default_factory=lambda: ['ramp_dhaka_bangladesh', 'ramp_barishal_bangladesh','ramp_sylhet_bangladesh']
+    )
+    val_regions: list[str] = field(
+        default_factory=lambda: ['ramp_coxs_bazar_bangladesh']
+    )
+    
+    
     val_split: float = 0.2
     
     # Model (set num_queries=0 for automatic computation from dataset)
@@ -24,7 +33,7 @@ class Config:
     stage1_batch_size: int = 4
     stage1_lr: float = 1e-4
     stage1_weight_decay: float = 0.01
-    stage1_num_samples: int = 100000
+    # stage1_num_samples: int = 100000
     
     # Stage 2
     stage2_epochs: int = 30

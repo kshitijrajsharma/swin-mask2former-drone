@@ -9,6 +9,7 @@ from kornia.losses import dice_loss, focal_loss, hausdorff as hausdorff_distance
 from torch import nn
 from torch.utils.data import Dataset
 from torchgeo.datasets import IntersectionDataset, RasterDataset, VectorDataset
+from torchgeo.samplers import RandomGeoSampler
 from tqdm import tqdm
 
 
@@ -84,23 +85,26 @@ def compute_num_queries(dataset: Dataset, num_samples: int = 100, percentile: fl
     print(f"Computing optimal num_queries from {num_samples} samples...")
     
     instance_counts = []
-    num_samples = min(num_samples, len(dataset))
     
-    indices = random.sample(range(len(dataset)), num_samples)
-    
-    for idx in tqdm(indices, desc="Sampling dataset"):
-        try:
-            sample = dataset[idx]
-            mask = sample["mask"]
-            
-            if mask.ndim == 2:
-                num_instances = 1 if mask.sum() > 0 else 0
-            else:
-                num_instances = sum(1 for i in range(mask.shape[0]) if mask[i].sum() > 10)
-            
-            instance_counts.append(num_instances)
-        except Exception:
-            continue
+    try:
+        sampler = RandomGeoSampler(dataset, size=256, length=num_samples)
+        
+        for bbox in tqdm(sampler, desc="Sampling dataset", total=num_samples):
+            try:
+                sample = dataset[bbox]
+                mask = sample["mask"]
+                
+                if mask.ndim == 2:
+                    num_instances = 1 if mask.sum() > 0 else 0
+                else:
+                    num_instances = sum(1 for i in range(mask.shape[0]) if mask[i].sum() > 10)
+                
+                instance_counts.append(num_instances)
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Warning: Could not sample dataset: {e}")
+        return 100
     
     if not instance_counts:
         print("Warning: Could not compute num_queries, using default 100")
@@ -165,40 +169,38 @@ class CombinedLoss(nn.Module):
         self.hausdorff_weight = hausdorff_weight
     
     def forward(self, pred_masks, pred_logits, gt_masks, gt_labels):
-        B, Q = pred_logits.shape[:2]
-        N = gt_masks.shape[1]
+        B, Q, H, W = pred_masks.shape
+        num_classes = pred_logits.shape[-1]
         
         loss = 0.0
         
         if pred_logits is not None and self.ce_weight > 0:
-            pred_classes = pred_logits.flatten(0, 1)
-            target_classes = gt_labels.flatten()
+            pred_classes = pred_logits.view(B * Q, num_classes)
+            target_classes = gt_labels.view(B * Q)
             
-            if target_classes.max() < pred_classes.shape[-1]:
-                ce_loss = F.cross_entropy(pred_classes, target_classes, reduction="mean")
-                loss += self.ce_weight * ce_loss
+            ce_loss = F.cross_entropy(pred_classes, target_classes, reduction="mean")
+            loss += self.ce_weight * ce_loss
         
-        pred_masks_flat = pred_masks.flatten(0, 1)[:N*B]
-        gt_masks_flat = gt_masks.flatten(0, 1)
+        pred_masks_flat = pred_masks.view(B * Q, H, W)
+        gt_masks_flat = gt_masks.view(B * Q, H, W)
         
-        if pred_masks_flat.shape[0] > 0 and gt_masks_flat.shape[0] > 0:
-            pred_sigmoid = torch.sigmoid(pred_masks_flat)
-            gt_float = gt_masks_flat.float()
-            
-            if self.dice_weight > 0:
-                dice = dice_loss(pred_sigmoid, gt_float)
-                loss += self.dice_weight * dice
-            
-            if self.focal_weight > 0:
-                focal = focal_loss(pred_masks_flat, gt_masks_flat.long(), alpha=0.25, gamma=2.0, reduction="mean")
-                loss += self.focal_weight * focal
-            
-            if self.hausdorff_weight > 0:
-                try:
-                    hd = hausdorff_distance_loss(pred_sigmoid, gt_float)
-                    loss += self.hausdorff_weight * hd
-                except Exception:
-                    pass
+        pred_sigmoid = torch.sigmoid(pred_masks_flat)
+        gt_float = gt_masks_flat.float()
+        
+        if self.dice_weight > 0:
+            dice = dice_loss(pred_sigmoid, gt_float)
+            loss += self.dice_weight * dice
+        
+        if self.focal_weight > 0:
+            focal = focal_loss(pred_masks_flat, gt_masks_flat.long(), alpha=0.25, gamma=2.0, reduction="mean")
+            loss += self.focal_weight * focal
+        
+        if self.hausdorff_weight > 0:
+            try:
+                hd = hausdorff_distance_loss(pred_sigmoid, gt_float)
+                loss += self.hausdorff_weight * hd
+            except Exception:
+                pass
         
         return loss
 

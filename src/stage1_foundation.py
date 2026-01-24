@@ -137,18 +137,22 @@ def main():
     else:
         print(f"Using configured num_queries: {cfg.num_queries}")
     
+
+    # train_length = min(cfg.stage1_num_samples // cfg.stage1_batch_size, len(train_dataset) // 4)
+    # val_length = max(len(val_dataset) // 20, 10)
+    
     train_sampler = RandomBatchGeoSampler(
         train_dataset,
         size=256,
         batch_size=cfg.stage1_batch_size,
-        length=cfg.stage1_num_samples // cfg.stage1_batch_size,
+        length=100, # TODO : fix this to be cfg.stage1_num_samples or we try something better idk
     )
     
     val_sampler = RandomBatchGeoSampler(
         val_dataset,
         size=256,
         batch_size=cfg.stage1_batch_size,
-        length=len(val_dataset) // cfg.stage1_batch_size,
+        length=5,
     )
     
     train_loader = DataLoader(
