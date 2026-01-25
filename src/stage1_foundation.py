@@ -1,4 +1,5 @@
 import torch
+from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torchgeo.samplers import RandomGeoSampler
 from tqdm import tqdm
@@ -11,6 +12,7 @@ from utils import (
     collate_fn_mask2former,
     compute_num_queries_from_geojson,
     get_all_ramp_regions,
+    get_metrics,
     get_ramp_dataset,
     save_checkpoint,
     set_seed,
@@ -19,7 +21,6 @@ from utils import (
 
 
 def pad_targets_to_queries(targets, num_queries, device):
-    """Pad or truncate targets to match num_queries"""
     gt_masks = []
     gt_labels = []
     
@@ -42,11 +43,12 @@ def pad_targets_to_queries(targets, num_queries, device):
     return torch.stack(gt_masks), torch.stack(gt_labels)
 
 
-def train_epoch(model, dataloader, criterion, optimizer, device, grad_accum_steps=1):
+def train_epoch(model, dataloader, criterion, optimizer, device, metrics, grad_accum_steps=1):
     model.train()
     total_loss = 0.0
     optimizer.zero_grad()
     num_queries = model.config.num_queries
+    metrics.reset()
     
     pbar = tqdm(dataloader, desc="Training")
     for idx, batch in enumerate(pbar):
@@ -71,16 +73,32 @@ def train_epoch(model, dataloader, criterion, optimizer, device, grad_accum_step
             optimizer.zero_grad()
         
         total_loss += loss.item() * grad_accum_steps
+        
+        with torch.no_grad():
+            B, Q, H, W = pred_masks.shape
+            if gt_masks.shape[-2:] != (H, W):
+                gt_masks_resized = F.interpolate(gt_masks.float(), size=(H, W), mode='nearest').bool()
+            else:
+                gt_masks_resized = gt_masks
+            
+            building_mask = (gt_labels == 1)
+            if building_mask.sum() > 0:
+                pred_probs = torch.sigmoid(pred_masks[building_mask])
+                gt_building = gt_masks_resized[building_mask]
+                metrics.update(pred_probs.flatten(), gt_building.flatten().int())
+        
         pbar.set_postfix({"loss": f"{loss.item() * grad_accum_steps:.4f}"})
     
-    return total_loss / len(dataloader)
+    epoch_metrics = metrics.compute()
+    return total_loss / len(dataloader), epoch_metrics
 
 
 @torch.no_grad()
-def validate_epoch(model, dataloader, criterion, device):
+def validate_epoch(model, dataloader, criterion, device, metrics):
     model.eval()
     total_loss = 0.0
     num_queries = model.config.num_queries
+    metrics.reset()
     
     pbar = tqdm(dataloader, desc="Validation")
     for batch in pbar:
@@ -97,9 +115,23 @@ def validate_epoch(model, dataloader, criterion, device):
         
         loss = criterion(pred_masks, pred_logits, gt_masks, gt_labels)
         total_loss += loss.item()
+        
+        B, Q, H, W = pred_masks.shape
+        if gt_masks.shape[-2:] != (H, W):
+            gt_masks_resized = F.interpolate(gt_masks.float(), size=(H, W), mode='nearest').bool()
+        else:
+            gt_masks_resized = gt_masks
+        
+        building_mask = (gt_labels == 1)
+        if building_mask.sum() > 0:
+            pred_probs = torch.sigmoid(pred_masks[building_mask])
+            gt_building = gt_masks_resized[building_mask]
+            metrics.update(pred_probs.flatten(), gt_building.flatten().int())
+        
         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
     
-    return total_loss / len(dataloader)
+    epoch_metrics = metrics.compute()
+    return total_loss / len(dataloader), epoch_metrics
 
 
 def create_dataloader(dataset, batch_size, num_samples, num_workers, is_train=True):
@@ -185,6 +217,7 @@ def main():
         ce_weight=cfg.loss_ce_weight,
         dice_weight=cfg.loss_dice_weight,
         focal_weight=cfg.loss_focal_weight,
+        bce_weight=cfg.loss_bce_weight,
         hausdorff_weight=cfg.loss_hausdorff_weight,
     )
     
@@ -201,8 +234,11 @@ def main():
     
     early_stopping = EarlyStopping(patience=cfg.early_stopping_patience)
     
+    train_metrics = get_metrics(device)
+    val_metrics = get_metrics(device)
+    
     print(f"\nStage 1: Foundation Training")
-    print(f"Loss weights - CE:{cfg.loss_ce_weight} Dice:{cfg.loss_dice_weight} Focal:{cfg.loss_focal_weight} Hausdorff:{cfg.loss_hausdorff_weight}")
+    print(f"Loss weights - CE:{cfg.loss_ce_weight} Dice:{cfg.loss_dice_weight} Focal:{cfg.loss_focal_weight} BCE:{cfg.loss_bce_weight} Hausdorff:{cfg.loss_hausdorff_weight}")
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     
     best_val_loss = float("inf")
@@ -210,11 +246,12 @@ def main():
     for epoch in range(cfg.stage1_epochs):
         print(f"\nEpoch {epoch + 1}/{cfg.stage1_epochs}")
         
-        train_loss = train_epoch(model, train_loader, criterion, optimizer, device, cfg.gradient_accumulation_steps)
-        val_loss = validate_epoch(model, val_loader, criterion, device)
+        train_loss, train_m = train_epoch(model, train_loader, criterion, optimizer, device, train_metrics, cfg.gradient_accumulation_steps)
+        val_loss, val_m = validate_epoch(model, val_loader, criterion, device, val_metrics)
         scheduler.step()
         
-        print(f"Train loss: {train_loss:.4f} | Val loss: {val_loss:.4f}")
+        print(f"Train - Loss: {train_loss:.4f} | Acc: {train_m['accuracy']:.4f} | P: {train_m['precision']:.4f} | R: {train_m['recall']:.4f} | F1: {train_m['f1']:.4f}")
+        print(f"Val   - Loss: {val_loss:.4f} | Acc: {val_m['accuracy']:.4f} | P: {val_m['precision']:.4f} | R: {val_m['recall']:.4f} | F1: {val_m['f1']:.4f}")
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
