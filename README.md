@@ -35,6 +35,10 @@ graph TD
 | Head | Mask2Former | Uses 100 learnable queries to predict instance masks. Treats each building as a separate object, solving the blob problem. |
 | Adapter | LoRA (Rank = 16) | Applied during Stage 2 fine-tuning. Enables geographic adaptation without catastrophic forgetting. |
 
+Masked-attention Mask Transformer for Universal Image Segmentation : 
+<img width="700" height="493" alt="image" src="https://github.com/user-attachments/assets/520f8461-b253-4aa2-b852-b9169b0949cf" />
+
+
 
 ## Training Strategy: Two-Stage Curriculum
 
