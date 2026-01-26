@@ -70,12 +70,12 @@ $$
 \mathcal{L}_{total} = \lambda_{ce}\,\mathcal{L}_{CE} + \lambda_{dice}\,\mathcal{L}_{Dice} + \lambda_{focal}\,\mathcal{L}_{Focal} + \alpha \cdot \mathcal{L}_{Boundary}
 $$
 
-### Components
+### Loss functions 
 
 - Cross-Entropy (L_CE): Binary classification (building vs background)
 - Dice Loss (L_Dice): Optimizes spatial overlap
-- Focal Loss (L_Focal): Emphasizes hard-to-classify pixels
-- Hausdorff Boundary Loss (L_Boundary): Penalizes edge mismatch, enforcing sharp corners, I think this is important for our irregular geometry problem
+- Focal Loss (L_Focal): Emphasizes hard-to-classify pixels ( Mask2former have replaced focal loss with cross entropy, Both those loss has been added as mask loss in mask2former : maskloss = diceloss + cross entropy loss, source : https://davidhuangal.bearblog.dev/mask2former/ ) , Hence we might not use focal loss in our case.
+- Hausdorff Boundary Loss (L_Boundary): Penalizes edge mismatch, enforcing sharp corners, I think this is important for our irregular geometry problem ( yet to be implemented)
 
 ## Implementation Details
 
