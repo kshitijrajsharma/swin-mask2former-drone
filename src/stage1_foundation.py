@@ -168,6 +168,7 @@ class RAMPDataModule(pl.LightningDataModule):
             num_workers=self.cfg.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=True,
+            drop_last=True,
         )
 
     def val_dataloader(self):
@@ -185,6 +186,7 @@ class RAMPDataModule(pl.LightningDataModule):
             num_workers=self.cfg.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=True,
+            drop_last=True,
         )
 
 

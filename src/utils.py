@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from scipy import ndimage
 from torchgeo.datasets import RasterDataset, VectorDataset
 from transformers import Mask2FormerImageProcessor
 
@@ -19,7 +20,9 @@ class RAMPMaskDataset(VectorDataset):
     filename_glob = "*.geojson"
 
     def __init__(self, paths, crs=None, **kwargs):
-        super().__init__(paths=paths, crs=crs, task="instance_segmentation", **kwargs)
+        super().__init__(
+            paths=paths, crs=crs, task="semantic_segmentation", **kwargs
+        )  # torchgeo has bug on instance_seg , it drops polygon from geojson if its in edge but the mask remains , this is where the bug is : `torchgeo/datasets/geo.py` (lines ~1070-1100) #TODO : raise this to torchgeo
 
 
 def get_ramp_dataset(root: Path, regions: list[str]):
@@ -92,23 +95,49 @@ def make_collate_fn(image_processor: Mask2FormerImageProcessor):
 
         for sample in batch:
             mask = sample["mask"]
+            # semantic
             if mask.ndim == 2:
-                mask = mask.unsqueeze(0)
+                mask_np = mask.numpy() if isinstance(mask, torch.Tensor) else mask
 
-            instance_masks = []
-            instance_classes = []
+                labeled_mask, num_instances = ndimage.label(mask_np > 0)
 
-            for i in range(mask.shape[0]):
-                instance_masks.append(mask[i].float())
-                instance_classes.append(1)
+                if num_instances > 0:
+                    instance_masks = []
+                    for instance_id in range(1, num_instances + 1):
+                        instance_mask = (labeled_mask == instance_id).astype(np.float32)
+                        instance_masks.append(torch.from_numpy(instance_mask))
 
-            if instance_masks:
-                mask_labels.append(torch.stack(instance_masks))
-                class_labels.append(torch.tensor(instance_classes, dtype=torch.long))
-            else:
-                H, W = mask.shape[-2:]
-                mask_labels.append(torch.zeros((0, H, W), dtype=torch.float32))
-                class_labels.append(torch.tensor([], dtype=torch.long))
+                    mask_labels.append(torch.stack(instance_masks))
+                    class_labels.append(
+                        torch.tensor([1] * num_instances, dtype=torch.long)
+                    )
+                else:
+                    H, W = mask.shape
+                    mask_labels.append(torch.zeros((0, H, W), dtype=torch.float32))
+                    class_labels.append(torch.tensor([], dtype=torch.long))
+
+            # instance_seg option
+            elif mask.ndim == 3:
+                instance_masks = []
+                instance_classes = []
+
+                for i in range(mask.shape[0]):
+                    instance_mask = mask[i]
+
+                    if instance_mask.sum() > 0:
+                        instance_masks.append(instance_mask.float())
+                        instance_classes.append(1)
+
+                if instance_masks:
+                    mask_labels.append(torch.stack(instance_masks))
+                    class_labels.append(
+                        torch.tensor(instance_classes, dtype=torch.long)
+                    )
+                else:
+                    # no buildings
+                    H, W = mask.shape[-2:]
+                    mask_labels.append(torch.zeros((0, H, W), dtype=torch.float32))
+                    class_labels.append(torch.tensor([], dtype=torch.long))
 
         inputs["mask_labels"] = mask_labels
         inputs["class_labels"] = class_labels
