@@ -1,0 +1,75 @@
+_wandb:
+    value:
+        cli_version: 0.24.0
+        e:
+            y25z896uggbtiforbb0h20je5pv1rju8:
+                codePath: src/stage1_foundation.py
+                codePathLocal: src/stage1_foundation.py
+                cpu_count: 24
+                cpu_count_logical: 32
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "3927835254784"
+                        used: "1565854683136"
+                email: skshitizraj@gmail.com
+                executable: /home/krschap/foss/high-res-building-seg-swinv2-mask2former/.venv/bin/python3
+                git:
+                    commit: 9777cd7be6ee7e462019ed6c4d8499d3fb0207fa
+                    remote: https://github.com/kshitijrajsharma/high-res-building-seg-swinv2-mask2former.git
+                gpu: NVIDIA GeForce RTX 4090 Laptop GPU
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 9728
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4090 Laptop GPU
+                      uuid: GPU-97cf2ab5-4201-00e1-eb47-f6f57395275d
+                host: tuxedo
+                memory:
+                    total: "67145023488"
+                os: Linux-6.14.0-119037-tuxedo-x86_64-with-glibc2.39
+                program: /home/krschap/foss/high-res-building-seg-swinv2-mask2former/src/stage1_foundation.py
+                python: CPython 3.13.7
+                root: .
+                startedAt: "2026-01-26T11:44:24.732109Z"
+                writerId: y25z896uggbtiforbb0h20je5pv1rju8
+        m:
+            - "1": trainer/global_step
+              "6":
+                - 3
+              "7": []
+            - "2": '*'
+              "5": 1
+              "6":
+                - 1
+              "7": []
+        python_version: 3.13.7
+        t:
+            "1":
+                - 1
+                - 9
+                - 11
+                - 41
+                - 49
+                - 71
+                - 103
+            "2":
+                - 1
+                - 9
+                - 11
+                - 41
+                - 49
+                - 71
+                - 103
+            "3":
+                - 7
+                - 13
+                - 66
+            "4": 3.13.7
+            "5": 0.24.0
+            "6": 4.57.6
+            "12": 0.24.0
+            "13": linux-x86_64
+cfg:
+    value: Config(data_root=PosixPath('/home/krschap/data'), output_dir=PosixPath('outputs'), seed=64, train_regions=['ramp_dhaka_bangladesh', 'ramp_barishal_bangladesh', 'ramp_sylhet_bangladesh'], val_regions=['ramp_coxs_bazar_bangladesh'], test_regions=['stage1_ramp_sample'], val_split=0.2, res=0.4, pretrained_model='facebook/mask2former-swin-base-IN21k-coco-instance', epochs=10, batch_size=8, dice_weight=5.0, mask_weight=5.0, class_weight=5.0, learning_rate=1e-05, weight_decay=0.0001, early_stopping_patience=5, num_workers=32, use_wandb=True, wandb_project='building-seg-mask2former', wandb_run_name='default_run')

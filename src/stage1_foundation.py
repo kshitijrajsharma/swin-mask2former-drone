@@ -3,7 +3,7 @@ import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
-from torchgeo.samplers import RandomGeoSampler
+from torchgeo.samplers import RandomBatchGeoSampler
 from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation
 
 from config import Config
@@ -93,8 +93,10 @@ class RAMPDataModule(pl.LightningDataModule):
         )
 
     def train_dataloader(self):
-        sampler = RandomGeoSampler(
-            self.train_dataset, size=256, length=self.cfg.num_samples
+        sampler = RandomBatchGeoSampler(
+            self.train_dataset,
+            size=256,
+            batch_size=self.cfg.batch_size,
         )
         return DataLoader(
             self.train_dataset,
@@ -107,8 +109,8 @@ class RAMPDataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
-        sampler = RandomGeoSampler(
-            self.val_dataset, size=256, length=self.cfg.num_samples
+        sampler = RandomBatchGeoSampler(
+            self.val_dataset, size=256, batch_size=self.cfg.batch_size
         )
         return DataLoader(
             self.val_dataset,

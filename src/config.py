@@ -18,6 +18,7 @@ class Config:
     val_regions: list[str] = field(
         default_factory=lambda: ["ramp_coxs_bazar_bangladesh"]
     )
+
     test_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
 
     val_split: float = 0.2
@@ -28,7 +29,6 @@ class Config:
 
     epochs: int = 10
     batch_size: int = 8
-    num_samples: int = 5
 
     # hyper params
     dice_weight: float = 5.0
