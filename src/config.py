@@ -19,8 +19,8 @@ class Config:
     #     default_factory=lambda: ["ramp_coxs_bazar_bangladesh"]
     # )
 
-    train_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
-    val_regions: list[str] = field(default_factory=lambda: ["stage2_sample"])
+    train_regions: list[str] = field(default_factory=lambda: ["banepa"])
+    val_regions: list[str] = field(default_factory=lambda: ["banepa"])
 
     val_split: float = 0.2
     pretrained_model: str = (
@@ -36,7 +36,7 @@ class Config:
     class_weight: float = 5.0
     learning_rate: float = 0.00001
     weight_decay: float = 0.0001  # penalty on large weights to prevent overfitting
-    early_stopping_patience: int = 5
+    early_stopping_patience: int = 10
 
     num_workers: int = 32
     use_wandb: bool = True

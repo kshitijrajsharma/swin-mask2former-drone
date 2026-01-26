@@ -3,7 +3,7 @@ import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
-from torchgeo.samplers import PreChippedGeoSampler
+from torchgeo.samplers import RandomGeoSampler, Units
 from torchmetrics import MetricCollection
 from torchmetrics.classification import BinaryF1Score, BinaryPrecision, BinaryRecall
 from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation
@@ -63,11 +63,9 @@ class Mask2FormerModule(pl.LightningModule):
         batch_masks = []
         for r in results:
             mask = torch.zeros(target_size, device=self.device, dtype=torch.long)
-            seg_map = r["segmentation"]  # [H, W] with instance IDs
+            seg_map = r["segmentation"].to(self.device)
             for info in r["segments_info"]:
-                # print(info)
-                if info["label_id"] == 1:  # building
-                    print("yay building")
+                if info["label_id"] == 1:
                     mask = mask | (seg_map == info["id"]).long()
             batch_masks.append(mask)
         return torch.stack(batch_masks)
@@ -151,8 +149,10 @@ class RAMPDataModule(pl.LightningDataModule):
         print(f"Val dataset length: {len(self.val_dataset)}")
 
     def train_dataloader(self):
-        sampler = PreChippedGeoSampler(
+        sampler = RandomGeoSampler(
             self.train_dataset,
+            size=256,
+            units=Units.PIXELS,
         )
         print("train_sampler length", len(sampler))
         return DataLoader(
@@ -165,8 +165,10 @@ class RAMPDataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
-        sampler = PreChippedGeoSampler(
+        sampler = RandomGeoSampler(
             self.val_dataset,
+            size=256,
+            units=Units.PIXELS,
         )
         print("val_sampler length", len(sampler))
 
