@@ -18,14 +18,11 @@ class RAMPImageDataset(RasterDataset):
 class RAMPMaskDataset(VectorDataset):
     filename_glob = "*.geojson"
 
-    def __init__(self, paths, crs=None, res=0.3, **kwargs):
-        super().__init__(
-            paths=paths, crs=crs, res=res, task="instance_segmentation", **kwargs
-        )
+    def __init__(self, paths, crs=None, **kwargs):
+        super().__init__(paths=paths, crs=crs, task="instance_segmentation", **kwargs)
 
 
-def get_ramp_dataset(root: Path, regions: list[str], res: float = 0.4):
-    from rasterio.crs import CRS
+def get_ramp_dataset(root: Path, regions: list[str]):
 
     image_paths, label_paths = [], []
     print(f"Finding image,label path for {regions}...")
@@ -39,13 +36,17 @@ def get_ramp_dataset(root: Path, regions: list[str], res: float = 0.4):
     if not image_paths:
         raise ValueError(f"No valid regions found in {root}")
 
-    target_crs = CRS.from_epsg(3857)
     print("Loading images ...")
-    images = RAMPImageDataset(paths=image_paths, crs=target_crs, res=res, cache=True)
-    print(f"Loaded {len(images)} image tiles.")
+    images = RAMPImageDataset(paths=image_paths)
+    print(
+        f"Loaded {len(images)} image tiles. using crs : {images.crs} with res {images.res}"
+    )
     print("Loading labels ...")
-    masks = RAMPMaskDataset(paths=label_paths, crs=target_crs, res=res)
-    print(f"Loaded {len(masks)} mask tiles.")
+    masks = RAMPMaskDataset(paths=label_paths)
+
+    print(
+        f"Loaded {len(masks)} mask tiles. using crs : {masks.crs} with res {masks.res}"
+    )
     return images & masks
 
 
@@ -67,7 +68,7 @@ def split_regions(regions: list[str], val_ratio: float = 0.2, seed: int = 42):
 
 
 def get_image_processor(
-    pretrained_model: str, size: int = 256
+    pretrained_model: str, size: int = 255
 ) -> Mask2FormerImageProcessor:
     return Mask2FormerImageProcessor.from_pretrained(
         pretrained_model,

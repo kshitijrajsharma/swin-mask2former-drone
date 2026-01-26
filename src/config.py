@@ -19,10 +19,12 @@ class Config:
         default_factory=lambda: ["ramp_coxs_bazar_bangladesh"]
     )
 
-    test_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
+    # train_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
+    # val_regions: list[str] = field(default_factory=lambda: ["stage2_sample"])
+
+    # test_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
 
     val_split: float = 0.2
-    res: float = 0.4
     pretrained_model: str = (
         "facebook/mask2former-swin-base-IN21k-coco-instance"  # https://huggingface.co/facebook/mask2former-swin-base-IN21k-coco-instance
     )

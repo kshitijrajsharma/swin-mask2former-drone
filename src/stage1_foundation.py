@@ -3,7 +3,9 @@ import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
-from torchgeo.samplers import RandomBatchGeoSampler
+from torchgeo.samplers import RandomBatchGeoSampler, Units
+from torchmetrics import MetricCollection
+from torchmetrics.classification import BinaryF1Score, BinaryPrecision, BinaryRecall
 from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation
 
 from config import Config
@@ -36,6 +38,16 @@ class Mask2FormerModule(pl.LightningModule):
             cfg.pretrained_model, config=base_config, ignore_mismatched_sizes=True
         )
 
+        metrics = MetricCollection(
+            {
+                "p": BinaryPrecision(),
+                "r": BinaryRecall(),
+                "f1": BinaryF1Score(),
+            }
+        )
+        self.train_metrics = metrics.clone(prefix="train_")
+        self.val_metrics = metrics.clone(prefix="val_")
+
     def forward(self, pixel_values, mask_labels=None, class_labels=None):
         return self.model(
             pixel_values=pixel_values,
@@ -43,19 +55,54 @@ class Mask2FormerModule(pl.LightningModule):
             class_labels=class_labels,
         )
 
+    def _get_pred_masks(self, outputs, target_size):
+        masks_logits = outputs.masks_queries_logits
+        class_logits = outputs.class_queries_logits
+        pred_class = class_logits.argmax(dim=-1)
+        building_mask = (pred_class == 1).unsqueeze(-1).unsqueeze(-1)
+        masks_prob = torch.sigmoid(masks_logits)
+        masks_prob = masks_prob * building_mask.float()
+        pred_mask = masks_prob.max(dim=1)[0]
+        pred_mask = torch.nn.functional.interpolate(
+            pred_mask.unsqueeze(1),
+            size=target_size,
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(1)
+        return (pred_mask > 0.5).long()
+
     def training_step(self, batch, batch_idx):
         mask_labels = [m.to(self.device) for m in batch["mask_labels"]]
         class_labels = [c.to(self.device) for c in batch["class_labels"]]
         outputs = self(batch["pixel_values"], mask_labels, class_labels)
         self.log("train_loss", outputs.loss, prog_bar=True, sync_dist=True)
+
+        with torch.no_grad():
+            target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
+            preds = self._get_pred_masks(outputs, target.shape[-2:])
+            self.train_metrics.update(preds.flatten(), target.flatten())
+
         return outputs.loss
+
+    def on_train_epoch_end(self):
+        self.log_dict(self.train_metrics.compute(), prog_bar=True, sync_dist=True)
+        self.train_metrics.reset()
 
     def validation_step(self, batch, batch_idx):
         mask_labels = [m.to(self.device) for m in batch["mask_labels"]]
         class_labels = [c.to(self.device) for c in batch["class_labels"]]
         outputs = self(batch["pixel_values"], mask_labels, class_labels)
         self.log("val_loss", outputs.loss, prog_bar=True, sync_dist=True)
+
+        target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
+        preds = self._get_pred_masks(outputs, target.shape[-2:])
+        self.val_metrics.update(preds.flatten(), target.flatten())
+
         return outputs.loss
+
+    def on_validation_epoch_end(self):
+        self.log_dict(self.val_metrics.compute(), prog_bar=True, sync_dist=True)
+        self.val_metrics.reset()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -66,14 +113,25 @@ class Mask2FormerModule(pl.LightningModule):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=self.cfg.epochs
         )
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch",
+                "frequency": 1,
+                "strict": True,
+            },
+        }
 
 
 class RAMPDataModule(pl.LightningDataModule):
     def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
-        self.image_processor = get_image_processor(cfg.pretrained_model)
+        self.image_size = 255
+        self.image_processor = get_image_processor(
+            cfg.pretrained_model, self.image_size
+        )
         self.collate_fn = make_collate_fn(self.image_processor)
 
     def setup(self, stage=None):
@@ -85,19 +143,19 @@ class RAMPDataModule(pl.LightningDataModule):
                 all_regions, self.cfg.val_split, self.cfg.seed
             )
 
-        self.train_dataset = get_ramp_dataset(
-            self.cfg.data_root, train_regions, self.cfg.res
-        )
-        self.val_dataset = get_ramp_dataset(
-            self.cfg.data_root, val_regions, self.cfg.res
-        )
+        self.train_dataset = get_ramp_dataset(self.cfg.data_root, train_regions)
+        print(f"Train dataset length: {len(self.train_dataset)}")
+        self.val_dataset = get_ramp_dataset(self.cfg.data_root, val_regions)
+        print(f"Val dataset length: {len(self.val_dataset)}")
 
     def train_dataloader(self):
         sampler = RandomBatchGeoSampler(
             self.train_dataset,
-            size=256,
+            size=self.image_size,
             batch_size=self.cfg.batch_size,
+            units=Units.PIXELS,
         )
+        print("train_sampler length", len(sampler))
         return DataLoader(
             self.train_dataset,
             batch_sampler=sampler,
@@ -108,8 +166,13 @@ class RAMPDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         sampler = RandomBatchGeoSampler(
-            self.val_dataset, size=256, batch_size=self.cfg.batch_size
+            self.val_dataset,
+            size=self.image_size,
+            batch_size=self.cfg.batch_size,
+            units=Units.PIXELS,
         )
+        print("val_sampler length", len(sampler))
+
         return DataLoader(
             self.val_dataset,
             batch_sampler=sampler,
@@ -128,12 +191,14 @@ def main():
 
     callbacks = [
         EarlyStopping(
-            monitor="val_loss", patience=cfg.early_stopping_patience, mode="min"
+            monitor="train_loss",
+            patience=cfg.early_stopping_patience,
+            mode="min",  # TODO : switch to val_loss
         ),
         ModelCheckpoint(
             dirpath=cfg.output_dir,
             filename="best",
-            monitor="val_loss",
+            monitor="train_loss",
             mode="min",
             save_top_k=1,
         ),
