@@ -4,7 +4,7 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    data_root: Path = Path("/home/krschap/data")
+    data_root: Path = Path("data")
     output_dir: Path = Path("outputs")
     seed: int = 64
 
@@ -19,8 +19,8 @@ class Config:
     #     default_factory=lambda: ["ramp_coxs_bazar_bangladesh"]
     # )
 
-    train_regions: list[str] = field(default_factory=lambda: ["banepa"])
-    val_regions: list[str] = field(default_factory=lambda: ["banepa"])
+    train_regions: list[str] = field(default_factory=lambda: ["sample"])
+    val_regions: list[str] = field(default_factory=lambda: ["sample"])
 
     val_split: float = 0.2
     pretrained_model: str = (
@@ -38,7 +38,7 @@ class Config:
     weight_decay: float = 0.0001  # penalty on large weights to prevent overfitting
     early_stopping_patience: int = 10
 
-    num_workers: int = 32
+    num_workers: int = 0
     use_wandb: bool = True
     wandb_project: str = "building-seg-mask2former"
     wandb_run_name: str = "default_run"
