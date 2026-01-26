@@ -5,7 +5,12 @@ from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
 from torchgeo.samplers import RandomGeoSampler, Units
 from torchmetrics import MetricCollection
-from torchmetrics.classification import BinaryF1Score, BinaryPrecision, BinaryRecall
+from torchmetrics.classification import (
+    BinaryAccuracy,
+    BinaryF1Score,
+    BinaryPrecision,
+    BinaryRecall,
+)
 from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation
 
 from config import Config
@@ -41,6 +46,7 @@ class Mask2FormerModule(pl.LightningModule):
 
         metrics = MetricCollection(
             {
+                "acc": BinaryAccuracy(),
                 "p": BinaryPrecision(),
                 "r": BinaryRecall(),
                 "f1": BinaryF1Score(),

@@ -108,7 +108,7 @@ def make_collate_fn(image_processor: Mask2FormerImageProcessor):
             else:
                 H, W = mask.shape[-2:]
                 mask_labels.append(torch.zeros((0, H, W), dtype=torch.float32))
-                class_labels.append(torch.tensor([255], dtype=torch.long))
+                class_labels.append(torch.tensor([], dtype=torch.long))
 
         inputs["mask_labels"] = mask_labels
         inputs["class_labels"] = class_labels
