@@ -68,7 +68,7 @@ def split_regions(regions: list[str], val_ratio: float = 0.2, seed: int = 42):
 
 
 def get_image_processor(
-    pretrained_model: str, size: int = 255
+    pretrained_model: str, size: int = 256
 ) -> Mask2FormerImageProcessor:
     return Mask2FormerImageProcessor.from_pretrained(
         pretrained_model,

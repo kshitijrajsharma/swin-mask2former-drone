@@ -3,7 +3,7 @@ import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
-from torchgeo.samplers import RandomBatchGeoSampler, Units
+from torchgeo.samplers import PreChippedGeoSampler
 from torchmetrics import MetricCollection
 from torchmetrics.classification import BinaryF1Score, BinaryPrecision, BinaryRecall
 from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation
@@ -24,7 +24,7 @@ class Mask2FormerModule(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.save_hyperparameters()
-        self.image_processor = get_image_processor(cfg.pretrained_model, 255)
+        self.image_processor = get_image_processor(cfg.pretrained_model)
 
         base_config = Mask2FormerConfig.from_pretrained(cfg.pretrained_model)
         base_config.num_labels = 2
@@ -75,6 +75,18 @@ class Mask2FormerModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         mask_labels = [m.to(self.device) for m in batch["mask_labels"]]
         class_labels = [c.to(self.device) for c in batch["class_labels"]]
+
+        # Debug first batch
+        if batch_idx == 0 and self.current_epoch == 0:
+            print(f"pixel_values shape: {batch['pixel_values'].shape}")
+            print(
+                f"pixel_values range: [{batch['pixel_values'].min():.3f}, {batch['pixel_values'].max():.3f}]"
+            )
+            print(f"mask_labels[0] shape: {mask_labels[0].shape}")
+            print(f"mask_labels[0] unique: {mask_labels[0].unique()}")
+            print(f"mask_labels[0] sum: {mask_labels[0].sum()}")
+            print(f"class_labels[0]: {class_labels[0]}")
+
         outputs = self(batch["pixel_values"], mask_labels, class_labels)
         self.log("train_loss", outputs.loss, prog_bar=True, sync_dist=True)
 
@@ -129,7 +141,7 @@ class RAMPDataModule(pl.LightningDataModule):
     def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
-        self.image_size = 255
+        self.image_size = 256
         self.image_processor = get_image_processor(
             cfg.pretrained_model, self.image_size
         )
@@ -150,33 +162,29 @@ class RAMPDataModule(pl.LightningDataModule):
         print(f"Val dataset length: {len(self.val_dataset)}")
 
     def train_dataloader(self):
-        sampler = RandomBatchGeoSampler(
+        sampler = PreChippedGeoSampler(
             self.train_dataset,
-            size=self.image_size,
-            batch_size=self.cfg.batch_size,
-            units=Units.PIXELS,
         )
         print("train_sampler length", len(sampler))
         return DataLoader(
             self.train_dataset,
-            batch_sampler=sampler,
+            sampler=sampler,
+            batch_size=self.cfg.batch_size,
             num_workers=self.cfg.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=True,
         )
 
     def val_dataloader(self):
-        sampler = RandomBatchGeoSampler(
+        sampler = PreChippedGeoSampler(
             self.val_dataset,
-            size=self.image_size,
-            batch_size=self.cfg.batch_size,
-            units=Units.PIXELS,
         )
         print("val_sampler length", len(sampler))
 
         return DataLoader(
             self.val_dataset,
-            batch_sampler=sampler,
+            sampler=sampler,
+            batch_size=self.cfg.batch_size,
             num_workers=self.cfg.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=True,

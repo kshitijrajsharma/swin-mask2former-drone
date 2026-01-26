@@ -8,21 +8,19 @@ class Config:
     output_dir: Path = Path("outputs")
     seed: int = 64
 
-    train_regions: list[str] = field(
-        default_factory=lambda: [
-            "ramp_dhaka_bangladesh",
-            "ramp_barishal_bangladesh",
-            "ramp_sylhet_bangladesh",
-        ]
-    )
-    val_regions: list[str] = field(
-        default_factory=lambda: ["ramp_coxs_bazar_bangladesh"]
-    )
+    # train_regions: list[str] = field(
+    #     default_factory=lambda: [
+    #         "ramp_dhaka_bangladesh",
+    #         "ramp_barishal_bangladesh",
+    #         "ramp_sylhet_bangladesh",
+    #     ]
+    # )
+    # val_regions: list[str] = field(
+    #     default_factory=lambda: ["ramp_coxs_bazar_bangladesh"]
+    # )
 
-    # train_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
-    # val_regions: list[str] = field(default_factory=lambda: ["stage2_sample"])
-
-    # test_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
+    train_regions: list[str] = field(default_factory=lambda: ["stage1_ramp_sample"])
+    val_regions: list[str] = field(default_factory=lambda: ["stage2_sample"])
 
     val_split: float = 0.2
     pretrained_model: str = (
