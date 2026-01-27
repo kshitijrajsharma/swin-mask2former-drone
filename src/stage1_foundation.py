@@ -146,6 +146,50 @@ class Mask2FormerModule(pl.LightningModule):
             },
         }
 
+    def visualize_batch(self, batch, num_samples=4, save_path=None):
+        """Visualize image, ground truth, and prediction side by side."""
+        import matplotlib.pyplot as plt
+
+        self.eval()
+        with torch.no_grad():
+            mask_labels = [m.to(self.device) for m in batch["mask_labels"]]
+            class_labels = [c.to(self.device) for c in batch["class_labels"]]
+            outputs = self(
+                batch["pixel_values"].to(self.device), mask_labels, class_labels
+            )
+
+            target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
+            preds = self._get_pred_masks(outputs, target.shape[-2:])
+
+        images = batch["pixel_values"].cpu()
+        target = target.cpu()
+        preds = preds.cpu()
+
+        num_samples = min(num_samples, len(images))
+        fig, axes = plt.subplots(num_samples, 3, figsize=(9, 3 * num_samples))
+        if num_samples == 1:
+            axes = axes[None, :]
+
+        for i in range(num_samples):
+            img = images[i].permute(1, 2, 0).numpy()
+            img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+
+            axes[i, 0].imshow(img)
+            axes[i, 0].set_title("Image")
+            axes[i, 1].imshow(target[i], cmap="gray", vmin=0, vmax=1)
+            axes[i, 1].set_title("Ground Truth")
+            axes[i, 2].imshow(preds[i], cmap="gray", vmin=0, vmax=1)
+            axes[i, 2].set_title("Prediction")
+
+            for ax in axes[i]:
+                ax.axis("off")
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.show()
+        plt.close()
+
 
 class OAMDataModule(pl.LightningDataModule):
     def __init__(self, cfg: Config):
