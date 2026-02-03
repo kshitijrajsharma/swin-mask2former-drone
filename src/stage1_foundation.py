@@ -1,6 +1,7 @@
 import numpy as np
 import pytorch_lightning as pl
 import torch
+import torch.nn.functional as F
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
@@ -71,6 +72,34 @@ class Mask2FormerModule(pl.LightningModule):
             class_labels=class_labels,
         )
 
+    def _get_boundary_weights(self, masks, kernel_size=3):
+        """Extract boundary pixels and create weight map emphasizing edges."""
+        if masks.dim() == 3:
+            masks = masks.unsqueeze(1)
+        
+        boundaries = F.max_pool2d(masks.float(), kernel_size, stride=1, padding=kernel_size//2)
+        boundaries = boundaries - F.avg_pool2d(masks.float(), kernel_size, stride=1, padding=kernel_size//2)
+        boundaries = (boundaries.abs() > 0.1).float()
+        
+        weights = torch.ones_like(masks.float())
+        weights = weights + boundaries * 10.0
+        
+        return weights.squeeze(1) if weights.shape[1] == 1 else weights
+
+    def _compute_boundary_dice_loss(self, pred_masks, target_masks):
+        """Compute boundary-weighted Dice loss for sharper edges."""
+        boundary_weights = self._get_boundary_weights(target_masks)
+        
+        pred_flat = pred_masks.flatten(1)
+        target_flat = target_masks.float().flatten(1)
+        weight_flat = boundary_weights.flatten(1)
+        
+        intersection = (pred_flat * target_flat * weight_flat).sum(1)
+        union = (pred_flat * weight_flat).sum(1) + (target_flat * weight_flat).sum(1)
+        
+        dice = (2.0 * intersection + 1e-7) / (union + 1e-7)
+        return 1.0 - dice.mean()
+
     def _get_pred_masks(self, outputs, target_size):
         results = self.image_processor.post_process_instance_segmentation(
             outputs, target_sizes=[target_size] * outputs.masks_queries_logits.shape[0]
@@ -121,17 +150,26 @@ class Mask2FormerModule(pl.LightningModule):
         class_labels = [c.to(self.device) for c in batch["class_labels"]]
 
         outputs = self(batch["pixel_values"], mask_labels, class_labels)
-        self.log("train_loss", outputs.loss, prog_bar=True, sync_dist=True)
+        base_loss = outputs.loss
+        
+        target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
+        binary_preds, _ = self._get_pred_masks(outputs, target.shape[-2:])
+        boundary_loss = self._compute_boundary_dice_loss(binary_preds, target)
+        
+        total_loss = base_loss + self.cfg.boundary_loss_weight * boundary_loss
+        
+        self.log("train_loss", total_loss, prog_bar=True, sync_dist=True)
+        self.log("train_base_loss", base_loss, prog_bar=False, sync_dist=True)
+        self.log("train_boundary_loss", boundary_loss, prog_bar=False, sync_dist=True)
 
         with torch.no_grad():
-            target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
-            binary_preds, instance_preds = self._get_pred_masks(outputs, target.shape[-2:])
-            self.train_metrics.update(binary_preds.flatten(), target.flatten())
+            binary_preds_metrics, instance_preds = self._get_pred_masks(outputs, target.shape[-2:])
+            self.train_metrics.update(binary_preds_metrics.flatten(), target.flatten())
             
             target_instances = self._prepare_target_instances(mask_labels, class_labels)
             self.train_map.update(instance_preds, target_instances)
 
-        return outputs.loss
+        return total_loss
 
     def on_train_epoch_end(self):
         self.log_dict(self.train_metrics.compute(), sync_dist=True)
@@ -392,14 +430,14 @@ def main():
 
     callbacks = [
         EarlyStopping(
-            monitor="val_map_50",
+            monitor="val_loss",
             patience=cfg.early_stopping_patience,
             mode="max",
         ),
         ModelCheckpoint(
             dirpath=cfg.output_dir,
             filename="best",
-            monitor="val_map_50",
+            monitor="val_loss",
             mode="max",
             save_top_k=1,
         ),
