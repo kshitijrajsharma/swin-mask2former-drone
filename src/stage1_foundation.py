@@ -102,6 +102,32 @@ class Mask2FormerModule(pl.LightningModule):
         dice = (2.0 * intersection + 1e-7) / (union + 1e-7)
         return 1.0 - dice.mean()
 
+    def _compute_compactness_loss(self, pred_masks):
+        """
+        Penalize irregular shapes using compactness (isoperimetric quotient).
+        Compact shapes (circles, squares) have low perimeter^2/area ratio.
+        Irregular shapes have high ratio. Encourages regular, cartographic geometries.
+        """
+        losses = []
+        for mask in pred_masks:
+            if mask.sum() < 10:  # tiny masks probably noise 
+                continue
+            
+            # perimeter computation 
+            mask_float = mask.float().unsqueeze(0).unsqueeze(0)
+            edges = F.max_pool2d(mask_float, 3, stride=1, padding=1) - mask_float
+            perimeter = edges.sum()
+            
+            area = mask.sum()
+            
+            # compactness : 4π * area / perimeter^2 (circle = 1, irregular < 1)
+            # we encourage higher compactness 
+            compactness = (4 * 3.14159 * area) / (perimeter ** 2 + 1e-7)
+            losses.append(1.0 - compactness.clamp(0, 1))
+        
+        return torch.stack(losses).mean() if losses else torch.tensor(0.0, device=pred_masks.device)
+
+
     def _get_pred_masks(self, outputs, target_size):
         results = self.image_processor.post_process_instance_segmentation(
             outputs, target_sizes=[target_size] * outputs.masks_queries_logits.shape[0]
@@ -157,12 +183,21 @@ class Mask2FormerModule(pl.LightningModule):
         target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
         binary_preds, _ = self._get_pred_masks(outputs, target.shape[-2:])
         boundary_loss = self._compute_boundary_dice_loss(binary_preds, target)
+
+        compactness_loss = self._compute_compactness_loss(binary_preds)
         
-        total_loss = base_loss + self.cfg.boundary_loss_weight * boundary_loss
+        total_loss = (
+            base_loss 
+            + self.cfg.boundary_loss_weight * boundary_loss
+            + self.cfg.compactness_loss_weight * compactness_loss
+        )
         
         self.log("train_loss", total_loss, prog_bar=True, sync_dist=True)
         self.log("train_base_loss", base_loss, prog_bar=False, sync_dist=True)
         self.log("train_boundary_loss", boundary_loss, prog_bar=False, sync_dist=True)
+        self.log("train_compactness_loss", compactness_loss, prog_bar=False, sync_dist=True)
+
+
 
         with torch.no_grad():
             binary_preds_metrics, instance_preds = self._get_pred_masks(outputs, target.shape[-2:])
@@ -432,15 +467,15 @@ def main():
 
     callbacks = [
         EarlyStopping(
-            monitor="val_loss",
+            monitor="val_map_50",
             patience=cfg.early_stopping_patience,
-            mode="min",
+            mode="max",
         ),
         ModelCheckpoint(
             dirpath=cfg.output_dir,
             filename="best",
-            monitor="val_loss",
-            mode="min",
+            monitor="val_map_50",
+            mode="max",
             save_top_k=1,
         ),
     ]
