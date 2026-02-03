@@ -14,13 +14,13 @@ The following files were used as context for generating this wiki page:
 
 ## Purpose and Scope
 
-This document details the neural network architecture used for high-resolution building segmentation, including the Swin Transformer V2 backbone, Mask2Former head with 100 learnable queries for instance segmentation, and the multi-component loss function. For information about the two-stage training strategy that uses this architecture, see [Two-Stage Training Architecture](#1.1). For implementation details of the training pipeline, see [Training Pipeline](#3).
+This document details the neural network architecture used for high-resolution building segmentation, including the Swin Transformer (Base) backbone, Mask2Former head with 100 learnable queries for instance segmentation, and the multi-component loss function. For information about the two-stage training strategy that uses this architecture, see [Two-Stage Training Architecture](#1.1). For implementation details of the training pipeline, see [Training Pipeline](#3).
 
 ## Architecture Overview
 
 The system combines a hierarchical vision transformer backbone with an instance segmentation head to predict individual building footprints from aerial imagery. The architecture is implemented in the `Mask2FormerModule` class and consists of three main components:
 
-1. **Swin Transformer V2 Backbone**: Extracts multi-scale features using window-based self-attention
+1. **Swin Transformer Backbone**: Extracts multi-scale features using window-based self-attention
 2. **Mask2Former Decoder**: Generates instance-level predictions via learnable queries
 3. **Multi-Component Loss**: Optimizes for classification, overlap, and geometric precision
 
@@ -28,7 +28,7 @@ The system combines a hierarchical vision transformer backbone with an instance 
 graph TB
     Input["Input Image<br/>256×256 RGB<br/>batch['pixel_values']"]
     
-    subgraph Backbone["Swin Transformer V2 Backbone<br/>facebook/mask2former-swin-base-IN21k-coco-instance"]
+    subgraph Backbone["Swin Transformer Backbone<br/>facebook/mask2former-swin-base-IN21k-coco-instance"]
         Stage1["Stage 1<br/>1/4 Resolution<br/>96 channels"]
         Stage2["Stage 2<br/>1/8 Resolution<br/>192 channels"]
         Stage3["Stage 3<br/>1/16 Resolution<br/>384 channels"]
@@ -66,6 +66,26 @@ graph TB
 
 **Sources:** [src/stage1_foundation.py:27-65](), [README.md:15-26]()
 
+## Swin Transformer Backbone
+
+The backbone uses Swin Transformer Base architecture (not V2), which processes images through hierarchical stages with shifted window-based self-attention. Key characteristics:
+
+- **Pretrained Weights**: ImageNet-22K (21,841 classes), providing strong feature representations
+- **Window Size**: 7x7 (standard Swin configuration)
+- **Multi-Scale Features**: Four stages produce features at different resolutions
+- **Parameter Efficiency**: Attention computed within local windows, not globally
+
+The backbone extracts features at four scales:
+
+- **Stage 1** (1/4 resolution): Early spatial features with 96 channels
+- **Stage 2** (1/8 resolution): Mid-level features with 192 channels  
+- **Stage 3** (1/16 resolution): High-level features with 384 channels
+- **Stage 4** (1/32 resolution): Deepest features with 768 channels
+
+These multi-scale features enable the model to recognize buildings at different sizes, from small individual structures to large building complexes.
+
+**Sources:** [README.md:32-36](), [src/stage1_foundation.py:34-45]()
+
 ## Model Initialization and Configuration
 
 The `Mask2FormerModule` class wraps the pretrained `Mask2FormerForUniversalSegmentation` model from Hugging Face Transformers. Model configuration occurs in the `__init__` method:
@@ -99,12 +119,12 @@ graph LR
 
 **Sources:** [src/stage1_foundation.py:28-45](), [src/config.py:27-40]()
 
-## Swin Transformer V2 Backbone
+## Swin Transformer Backbone
 
-The backbone uses Swin Transformer V2 Base architecture, which processes images through hierarchical stages with shifted window-based self-attention. Key characteristics:
+The backbone uses Swin Transformer Base architecture (not V2), which processes images through hierarchical stages with shifted window-based self-attention. Key characteristics:
 
 - **Pretrained Weights**: ImageNet-22K (21,841 classes), providing strong feature representations
-- **Window Size**: Optimized for high-resolution inputs (256×256 or 512×512)
+- **Window Size**: 7x7 (standard Swin configuration)
 - **Multi-Scale Features**: Four stages produce features at different resolutions
 - **Parameter Efficiency**: Attention computed within local windows, not globally
 

@@ -16,7 +16,7 @@ This experiment proposes a composable architecture combining modern feature extr
 
 ```mermaid
 graph TD
-    A["Input: RGB Aerial Image 256x256 (TorchGeo)"] --> B["Backbone: Swin Transformer V2"]
+    A["Input: RGB Aerial Image 256x256 (TorchGeo)"] --> B["Backbone: Swin Transformer (Base)"]
     B -->|"Features at 1/4, 1/8, 1/16, 1/32 scale"| C["Pixel Decoder: Multi-Scale Deformable Attention"]
     C --> D["Transformer Decoder: Mask2Former"]
     D -->|"Query 1"| E["Mask 1: Building A"]
@@ -33,7 +33,7 @@ graph TD
 
 | Component | Selection | Justification |
 |----------|-----------|---------------|
-| Backbone | Swin Transformer V2 (Base) | Optimized for high-resolution windows (256×256). Captures texture and geometry better than CNNs. Pretrained on ImageNet-22K. |
+| Backbone | Swin Transformer (Base) | Hierarchical vision transformer with window-based self-attention (256×256). Captures texture and geometry better than CNNs. Pretrained on ImageNet-22K. |
 | Head | Mask2Former | Uses 100 learnable queries to predict instance masks. Treats each building as a separate object, solving the blob problem. |
 | Adapter | LoRA (Rank = 16) | Planned for Stage 2 fine-tuning. Enables geographic adaptation without catastrophic forgetting. |
 
@@ -51,7 +51,7 @@ Goal: Teach semantic distinction between roof and ground in informal settlements
 - **Data**: Currently using Banepa dataset (train/val/test splits)
 - **Method**: Full fine-tuning (Backbone + Head)
 - **Initialization**:
-  - Backbone: ImageNet-22K pretrained weights (Swin Transformer V2)
+  - Backbone: ImageNet-22K pretrained weights (Swin Transformer Base)
   - Head: COCO pretrained weights (facebook/mask2former-swin-base-IN21k-coco-instance)
   - 100 fixed learnable queries (from COCO pretraining)
 - **Hyperparameters**: Fixed (learning_rate=1e-5, weight_decay=1e-4, batch_size=8, epochs=10)
@@ -129,8 +129,8 @@ Stage 2 will involve hyperparameter tuning using Optuna on validation set:
 
 ## References
 
-1. Liu et al. (2022). Swin Transformer V2: Scaling Up Capacity and Resolution. CVPR 2022.  
-   [https://arxiv.org/abs/2111.09883](https://arxiv.org/abs/2111.09883)
+1. Liu et al. (2021). Swin Transformer: Hierarchical Vision Transformer using Shifted Windows. ICCV 2021.  
+   [https://arxiv.org/abs/2103.14030](https://arxiv.org/abs/2103.14030)
 
 2. Cheng et al. (2022). Masked-attention Mask Transformer for Universal Image Segmentation. CVPR 2022.  
    [https://arxiv.org/abs/2112.01527](https://arxiv.org/abs/2112.01527)

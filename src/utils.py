@@ -94,29 +94,9 @@ def make_collate_fn(image_processor: Mask2FormerImageProcessor):
 
         for sample in batch:
             mask = sample["mask"]
-            # semantic
-            if mask.ndim == 2:
-                mask_np = mask.numpy() if isinstance(mask, torch.Tensor) else mask
-
-                labeled_mask, num_instances = ndimage.label(mask_np > 0)
-
-                if num_instances > 0:
-                    instance_masks = []
-                    for instance_id in range(1, num_instances + 1):
-                        instance_mask = (labeled_mask == instance_id).astype(np.float32)
-                        instance_masks.append(torch.from_numpy(instance_mask))
-
-                    mask_labels.append(torch.stack(instance_masks))
-                    class_labels.append(
-                        torch.tensor([1] * num_instances, dtype=torch.long)
-                    )
-                else:
-                    H, W = mask.shape
-                    mask_labels.append(torch.zeros((0, H, W), dtype=torch.float32))
-                    class_labels.append(torch.tensor([], dtype=torch.long))
-
-            # instance_seg option
-            elif mask.ndim == 3:
+            
+            # Instance segmentation (mask.ndim == 3: [num_instances, H, W])
+            if mask.ndim == 3:
                 instance_masks = []
                 instance_classes = []
 
