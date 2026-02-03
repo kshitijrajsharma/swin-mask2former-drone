@@ -28,8 +28,8 @@ class Config:
         "facebook/mask2former-swin-base-IN21k-coco-instance"  # https://huggingface.co/facebook/mask2former-swin-base-IN21k-coco-instance
     )
 
-    epochs: int = 10
-    batch_size: int = 8
+    epochs: int = 50
+    batch_size: int = 16
 
     # hyper params
     dice_weight: float = 5.0
@@ -41,7 +41,7 @@ class Config:
 
     learning_rate: float = 0.00001
     weight_decay: float = 0.0001
-    early_stopping_patience: int = 10
+    early_stopping_patience: int = 15
 
     num_workers: int = 31
     use_wandb: bool = True
