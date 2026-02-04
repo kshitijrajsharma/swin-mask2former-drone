@@ -1,4 +1,3 @@
-import kornia.augmentation as K
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -21,6 +20,7 @@ from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation
 from src.config import Config
 from src.utils import (
     get_all_ramp_regions,
+    get_augmentation,
     get_image_processor,
     get_ramp_dataset,
     make_collate_fn,
@@ -399,17 +399,8 @@ class OAMDataModule(pl.LightningDataModule):
                 all_regions, self.cfg.val_split, self.cfg.seed
             )
 
-        train_aug = K.AugmentationSequential(
-            K.RandomHorizontalFlip(p=0.5),
-            K.RandomVerticalFlip(p=0.5),
-            K.RandomRotation(degrees=90, p=0.5),
-            K.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-            K.RandomGaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0), p=0.3),
-            data_keys=None,
-        )
-
         self.train_dataset = get_ramp_dataset(self.cfg.data_root, train_regions)
-        self.train_dataset.transforms = train_aug
+        self.train_dataset.transforms = get_augmentation()
         print(f"Train dataset length: {len(self.train_dataset)}")
         
         self.val_dataset = get_ramp_dataset(self.cfg.data_root, val_regions)

@@ -1,11 +1,30 @@
 import random
+import warnings
 from pathlib import Path
 from typing import Any
 
+import kornia.augmentation as K
 import numpy as np
 import torch
+from kornia.constants import Resample
 from torchgeo.datasets import RasterDataset, VectorDataset
 from transformers import Mask2FormerImageProcessor
+
+warnings.filterwarnings("ignore", category=UserWarning, module="kornia") # ignore the warnings of aligh_corners 
+
+
+
+def get_augmentation():
+    
+    return K.AugmentationSequential(
+        K.RandomHorizontalFlip(p=0.5, same_on_batch=False),
+        K.RandomVerticalFlip(p=0.5, same_on_batch=False),
+        K.RandomRotation(degrees=90, resample=Resample.BILINEAR, align_corners=False, same_on_batch=False, p=0.5),
+        K.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, same_on_batch=False, p=0.5),
+        K.RandomGaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0), border_type='reflect', same_on_batch=False, p=0.3),
+        data_keys=None,
+        keepdim=True,
+    )
 
 
 class RAMPImageDataset(RasterDataset):
@@ -86,7 +105,7 @@ def make_collate_fn(image_processor: Mask2FormerImageProcessor):
     def collate_fn(
         batch: list[dict[str, Any]],
     ) -> dict[str, Any]:  # source : https://debuggercafe.com/fine-tuning-mask2former/
-        images = [sample["image"].float() for sample in batch]
+        images = [sample["image"].permute(1, 2, 0).numpy().astype('uint8') for sample in batch]
         inputs = image_processor(images=images, return_tensors="pt")
 
         mask_labels = []
