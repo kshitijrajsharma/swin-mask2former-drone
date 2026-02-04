@@ -26,6 +26,7 @@ from src.utils import (
     make_collate_fn,
     set_seed,
     split_regions,
+    validate_dataset,
 )
 
 
@@ -39,6 +40,7 @@ class Mask2FormerModule(pl.LightningModule):
         base_config = Mask2FormerConfig.from_pretrained(cfg.pretrained_model)
         base_config.num_labels = 2
         base_config.ignore_index = 255
+        base_config.num_queries = cfg.num_queries
         base_config.id2label = {0: "background", 1: "building"}
         base_config.label2id = {"background": 0, "building": 1}
         base_config.class_weight = cfg.class_weight
@@ -192,9 +194,11 @@ class Mask2FormerModule(pl.LightningModule):
         )
         
         self.log("train_loss", total_loss, prog_bar=True, sync_dist=True)
-        self.log("train_base_loss", base_loss, prog_bar=False, sync_dist=True)
-        self.log("train_boundary_loss", boundary_loss, prog_bar=False, sync_dist=True)
-        self.log("train_compactness_loss", compactness_loss, prog_bar=False, sync_dist=True)
+        
+        if self.cfg.verbose:
+            self.log("train_base_loss", base_loss, prog_bar=False, sync_dist=True)
+            self.log("train_boundary_loss", boundary_loss, prog_bar=False, sync_dist=True)
+            self.log("train_compactness_loss", compactness_loss, prog_bar=False, sync_dist=True)
 
 
 
@@ -395,13 +399,26 @@ class OAMDataModule(pl.LightningDataModule):
         if self.cfg.enable_data_augmentation:
             print("Applying data augmentation to training dataset")
             self.train_dataset.transforms = get_augmentation()
-        print(f"Train dataset length: {len(self.train_dataset)}")
+        
+        if self.cfg.verbose:
+            print("\nValidating Training Dataset:")
+            validate_dataset(self.train_dataset, verbose=True)
+        else:
+            print(f"Train dataset length: {len(self.train_dataset)}")
         
         self.val_dataset = get_ramp_dataset(self.cfg.data_root, val_regions)
-        print(f"Val dataset length: {len(self.val_dataset)}")
+        if self.cfg.verbose:
+            print("\nValidating Validation Dataset:")
+            validate_dataset(self.val_dataset, verbose=True)
+        else:
+            print(f"Val dataset length: {len(self.val_dataset)}")
         
         self.test_dataset = get_ramp_dataset(self.cfg.data_root, self.cfg.test_regions)
-        print(f"Test dataset length: {len(self.test_dataset)}")
+        if self.cfg.verbose:
+            print("\nValidating Test Dataset:")
+            validate_dataset(self.test_dataset, verbose=True)
+        else:
+            print(f"Test dataset length: {len(self.test_dataset)}")
 
     def _create_dataloader(self, dataset, split_name):
         """Helper to create dataloader with sampler."""
@@ -410,7 +427,8 @@ class OAMDataModule(pl.LightningDataModule):
             size=self.cfg.sampler_size,
             units=Units.PIXELS,
         )
-        print(f"{split_name}_sampler length", len(sampler))
+        if self.cfg.verbose:
+            print(f"{split_name}_sampler length: {len(sampler)}")
         return DataLoader(
             dataset,
             sampler=sampler,

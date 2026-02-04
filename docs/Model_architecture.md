@@ -328,25 +328,41 @@ Key implementation details:
 
 ## Training and Optimization Configuration
 
-The model uses the AdamW optimizer with cosine annealing learning rate schedule, configured in the `configure_optimizers()` method:
+The model uses AdamW optimizer with ReduceLROnPlateau scheduler for adaptive learning rate adjustment:
 
 | Parameter | Default Value | Description |
 |-----------|---------------|-------------|
 | Optimizer | AdamW | Weight decay variant of Adam |
 | Learning Rate | 1e-5 (0.00001) | Initial learning rate from `cfg.learning_rate` |
 | Weight Decay | 1e-4 (0.0001) | L2 regularization penalty from `cfg.weight_decay` |
-| Scheduler | CosineAnnealingLR | Gradually reduces LR to 0 over training |
-| T_max | `cfg.epochs` (10) | Number of epochs for full cosine cycle |
+| Scheduler | ReduceLROnPlateau | Reduces LR when validation metric plateaus |
+| Mode | max | Monitors metric improvement (maximization) |
+| Monitor | val_map_50 | Validation mAP@0.5 metric |
+| Factor | 0.5 | LR multiplier when plateau detected (from `cfg.scheduler_factor`) |
+| Patience | 5 epochs | Epochs to wait before reducing LR (from `cfg.scheduler_patience`) |
 
-The cosine annealing schedule provides:
+### Adaptive Learning Rate Strategy
 
-- Smooth learning rate decay from initial value to near-zero
-- Better convergence properties than step decay
-- No need for manual LR adjustment during training
+ReduceLROnPlateau provides:
 
-The scheduler updates once per epoch (`interval="epoch"`, `frequency=1`) with strict enforcement of the schedule.
+- **Metric-driven**: Reduces LR only when `val_map_50` stops improving
+- **Adaptive**: No predefined schedule, responds to actual training dynamics
+- **Automatic**: No manual intervention needed during training
+- **Synergy with Early Stopping**: Both monitor same metric (`val_map_50`)
 
-**Sources:** [src/stage1_foundation.py:130-147](), [src/config.py:38-40]()
+The scheduler checks validation performance each epoch. If `val_map_50` doesn't improve for 5 consecutive epochs, learning rate is multiplied by 0.5 (halved). This continues until training converges or early stopping triggers.
+
+### Early Stopping Configuration
+
+Early stopping monitors the same metric (`val_map_50`) with longer patience:
+
+- **Monitor**: val_map_50 (mAP @ IoU 0.5)
+- **Patience**: 15 epochs (from `cfg.early_stopping_patience`)
+- **Mode**: max (higher is better)
+
+Training terminates if validation performance doesn't improve for 15 epochs, typically after 2-3 learning rate reductions (5 epochs × 3 = 15 epochs).
+
+**Sources:** [src/stage1.py:293-308](), [src/config.py:38-40]()
 
 ## Visualization Capabilities
 

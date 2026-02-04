@@ -19,6 +19,9 @@ class Config:
 
     epochs: int = 50
     batch_size: int = 16
+    
+    num_queries: int = 100 # queries for the transformer per tile
+    verbose: bool = False
 
     # hyper params
     dice_weight: float = 5.0

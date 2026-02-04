@@ -1,5 +1,6 @@
 import random
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -60,13 +61,13 @@ def get_ramp_dataset(root: Path, regions: list[str]):
     print("Loading images ...")
     images = RAMPImageDataset(paths=image_paths)
     print(
-        f"Loaded {len(images)} image tiles. using crs : {images.crs} with res {images.res}"
+        f"Loaded {len(images)} image tiles."
     )
     print("Loading labels ...")
     masks = RAMPMaskDataset(paths=label_paths)
 
     print(
-        f"Loaded {len(masks)} mask tiles. using crs : {masks.crs} with res {masks.res}"
+        f"Loaded {len(masks)} mask tiles."
     )
     return images & masks
 
@@ -151,3 +152,87 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+@dataclass
+class DatasetStats:
+    num_samples: int
+    total_buildings: int
+    avg_buildings_per_image: float
+    buildings_range: tuple[int, int]
+    avg_building_area_px: float
+    empty_mask_ratio: float
+    
+
+def validate_dataset(dataset, verbose=False):
+    building_counts = []
+    areas = []
+    
+    for idx, sample in enumerate(dataset):
+        mask = sample['mask']
+        
+        if mask.ndim == 2 or mask.sum() == 0:
+            building_counts.append(0)
+            if verbose and idx < 5:
+                print(f"  Sample {idx}: Empty mask")
+            continue
+        
+        num_buildings = mask.shape[0]
+        building_counts.append(num_buildings)
+        areas.extend([mask[i].sum().item() for i in range(num_buildings) if mask[i].sum() > 0])
+        
+        if verbose and idx < 5:
+            print(f"  Sample {idx}: {num_buildings} buildings")
+    
+    building_counts_np = np.array(building_counts)
+    areas_np = np.array(areas) if areas else np.array([0])
+    
+    stats = DatasetStats(
+        num_samples=len(dataset),
+        total_buildings=int(building_counts_np.sum()),
+        avg_buildings_per_image=float(building_counts_np.mean()),
+        buildings_range=(int(building_counts_np.min()), int(building_counts_np.max())),
+        avg_building_area_px=float(areas_np.mean()),
+        empty_mask_ratio=float((building_counts_np == 0).sum() / len(dataset)),
+    )
+    
+    if verbose:
+        print(f"\nDataset: {stats.num_samples} samples, {stats.total_buildings} buildings")
+        print(f"Avg buildings/img: {stats.avg_buildings_per_image:.2f}, range: {stats.buildings_range}")
+        print(f"Avg area: {stats.avg_building_area_px:.1f}px, empty: {stats.empty_mask_ratio:.1%}\n")
+    
+    return stats
+
+
+def visualize_attention_maps(model, batch, query_idx=0, save_path=None):
+    import matplotlib.pyplot as plt
+    
+    model.eval()
+    device = next(model.parameters()).device
+    
+    with torch.no_grad():
+        outputs = model(batch["pixel_values"].to(device))
+        
+        if not (hasattr(outputs, 'attentions') and outputs.attentions is not None):
+            print(f"No attention maps available. Output keys: {getattr(outputs, 'keys', lambda: 'N/A')()}")
+            return None
+        
+        img = batch["pixel_values"][0].permute(1, 2, 0).cpu().numpy()
+        img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+        attn = outputs.attentions[-1][0, query_idx].cpu().numpy()
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        ax1.imshow(img)
+        ax1.set_title("Input Image")
+        ax1.axis('off')
+        
+        ax2.imshow(attn, cmap='hot', interpolation='nearest')
+        ax2.set_title(f"Query {query_idx} Attention")
+        ax2.axis('off')
+        
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.show()
+        
+        return fig
