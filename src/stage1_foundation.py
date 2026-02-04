@@ -110,19 +110,19 @@ class Mask2FormerModule(pl.LightningModule):
         """
         losses = []
         for mask in pred_masks:
-            if mask.sum() < 10:  # tiny masks probably noise 
+            if mask.sum() < 10:  # tiny masks probably noise
                 continue
             
-            # perimeter computation 
+            # perimeter computation
             mask_float = mask.float().unsqueeze(0).unsqueeze(0)
             edges = F.max_pool2d(mask_float, 3, stride=1, padding=1) - mask_float
-            perimeter = edges.sum()
+            perimeter = edges.abs().sum() + 1e-7
             
-            area = mask.sum()
+            area = mask.sum() + 1e-7
             
-            # compactness : 4π * area / perimeter^2 (circle = 1, irregular < 1)
-            # we encourage higher compactness 
-            compactness = (4 * 3.14159 * area) / (perimeter ** 2 + 1e-7)
+            # compactness: 4π * area / perimeter^2 (circle = 1, irregular < 1)
+            # we encourage higher compactness
+            compactness = (4 * 3.14159 * area) / (perimeter.clamp(min=1.0) ** 2)
             losses.append(1.0 - compactness.clamp(0, 1))
         
         return torch.stack(losses).mean() if losses else torch.tensor(0.0, device=pred_masks.device)
@@ -147,17 +147,17 @@ class Mask2FormerModule(pl.LightningModule):
             for info in r["segments_info"]:
                 if info["label_id"] == 1:
                     instance_mask = (seg_map == info["id"]).long()
-                    binary_mask = binary_mask | instance_mask
-                    
-                    instance_masks.append(instance_mask.cpu().bool())
                     
                     ys, xs = torch.where(instance_mask)
-                    if len(ys) > 0:
-                        x1, y1 = xs.min().item(), ys.min().item()
-                        x2, y2 = xs.max().item(), ys.max().item()
-                        instance_boxes.append([x1, y1, x2, y2])
-                    else:
-                        instance_boxes.append([0, 0, 1, 1])
+                    if len(ys) == 0:
+                        continue
+                    
+                    binary_mask = binary_mask | instance_mask
+                    instance_masks.append(instance_mask.cpu().bool())
+                    
+                    x1, y1 = xs.min().item(), ys.min().item()
+                    x2, y2 = xs.max().item(), ys.max().item()
+                    instance_boxes.append([x1, y1, x2, y2])
                     
                     instance_scores.append(info["score"])
                     instance_labels.append(1)
@@ -201,10 +201,13 @@ class Mask2FormerModule(pl.LightningModule):
 
         with torch.no_grad():
             binary_preds_metrics, instance_preds = self._get_pred_masks(outputs, target.shape[-2:])
-            self.train_metrics.update(binary_preds_metrics.flatten(), target.flatten())
+            
+            if binary_preds_metrics.sum() > 0 or target.sum() > 0:
+                self.train_metrics.update(binary_preds_metrics.flatten(), target.flatten())
             
             target_instances = self._prepare_target_instances(mask_labels, class_labels)
-            self.train_map.update(instance_preds, target_instances)
+            if any(len(p['masks']) > 0 for p in instance_preds) or any(len(t['masks']) > 0 for t in target_instances):
+                self.train_map.update(instance_preds, target_instances)
 
         return total_loss
 
@@ -217,20 +220,27 @@ class Mask2FormerModule(pl.LightningModule):
         self.log("train_map_50", map_results["map_50"], sync_dist=True)
         self.train_map.reset()
 
-    def validation_step(self, batch, batch_idx):
+    def _eval_step(self, batch, metrics, map_metric):
         mask_labels = [m.to(self.device) for m in batch["mask_labels"]]
         class_labels = [c.to(self.device) for c in batch["class_labels"]]
         outputs = self(batch["pixel_values"], mask_labels, class_labels)
-        self.log("val_loss", outputs.loss, prog_bar=False, sync_dist=True)
-
+        
         target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
         binary_preds, instance_preds = self._get_pred_masks(outputs, target.shape[-2:])
-        self.val_metrics.update(binary_preds.flatten(), target.flatten())
+        
+        if binary_preds.sum() > 0 or target.sum() > 0:
+            metrics.update(binary_preds.flatten(), target.flatten())
         
         target_instances = self._prepare_target_instances(mask_labels, class_labels)
-        self.val_map.update(instance_preds, target_instances)
-
+        if any(len(p['masks']) > 0 for p in instance_preds) or any(len(t['masks']) > 0 for t in target_instances):
+            map_metric.update(instance_preds, target_instances)
+        
         return outputs.loss
+
+    def validation_step(self, batch, batch_idx):
+        loss = self._eval_step(batch, self.val_metrics, self.val_map)
+        self.log("val_loss", loss, prog_bar=False, sync_dist=True)
+        return loss
 
     def on_validation_epoch_end(self):
         self.log_dict(self.val_metrics.compute(), prog_bar=True, sync_dist=True)
@@ -242,19 +252,9 @@ class Mask2FormerModule(pl.LightningModule):
         self.val_map.reset()
 
     def test_step(self, batch, batch_idx):
-        mask_labels = [m.to(self.device) for m in batch["mask_labels"]]
-        class_labels = [c.to(self.device) for c in batch["class_labels"]]
-        outputs = self(batch["pixel_values"], mask_labels, class_labels)
-        self.log("test_loss", outputs.loss, prog_bar=True, sync_dist=True)
-
-        target = torch.stack([(m.sum(0) > 0).long() for m in mask_labels])
-        binary_preds, instance_preds = self._get_pred_masks(outputs, target.shape[-2:])
-        self.test_metrics.update(binary_preds.flatten(), target.flatten())
-        
-        target_instances = self._prepare_target_instances(mask_labels, class_labels)
-        self.test_map.update(instance_preds, target_instances)
-
-        return outputs.loss
+        loss = self._eval_step(batch, self.test_metrics, self.test_map)
+        self.log("test_loss", loss, prog_bar=True, sync_dist=True)
+        return loss
 
     def on_test_epoch_end(self):
         self.log_dict(self.test_metrics.compute(), prog_bar=True, sync_dist=True)
@@ -282,10 +282,11 @@ class Mask2FormerModule(pl.LightningModule):
                     instance_boxes.append([x1, y1, x2, y2])
                     instance_labels.append(label.item())
             
+            h, w = masks.shape[-2:]
             target_instances.append({
-                "masks": torch.stack(instance_masks) if instance_masks else torch.zeros((0, *mask_labels[0].shape[-2:]), dtype=torch.bool),
-                "boxes": torch.tensor(instance_boxes, dtype=torch.float32),
-                "labels": torch.tensor(instance_labels, dtype=torch.long),
+                "masks": torch.stack(instance_masks) if instance_masks else torch.zeros((0, h, w), dtype=torch.bool),
+                "boxes": torch.tensor(instance_boxes, dtype=torch.float32) if instance_boxes else torch.zeros((0, 4), dtype=torch.float32),
+                "labels": torch.tensor(instance_labels, dtype=torch.long) if instance_labels else torch.zeros((0,), dtype=torch.long),
             })
         
         return target_instances
@@ -296,16 +297,16 @@ class Mask2FormerModule(pl.LightningModule):
             lr=self.cfg.learning_rate,
             weight_decay=self.cfg.weight_decay,
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=self.cfg.epochs
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='max', factor=0.5, patience=5
         )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
                 "interval": "epoch",
+                "monitor": "val_map_50",
                 "frequency": 1,
-                "strict": True,
             },
         }
 
